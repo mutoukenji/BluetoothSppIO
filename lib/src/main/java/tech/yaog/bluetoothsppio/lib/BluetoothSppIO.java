@@ -34,7 +34,8 @@ public class BluetoothSppIO extends IO {
             socket.connect();
             callback.onConnected();
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            callback.onDisconnected();
+            callback.onException(e);
         }
         return false;
     }

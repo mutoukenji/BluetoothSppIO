@@ -16,6 +16,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
+import android.util.Log;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -24,16 +28,64 @@ import java.util.Set;
 
 import permissions.dispatcher.NeedsPermission;
 import permissions.dispatcher.RuntimePermissions;
+import tech.yaog.bluetoothsppio.databinding.ActivityMainBinding;
 
 @RuntimePermissions
 public class MainActivity extends AppCompatActivity {
 
+    ActivityMainBinding binding;
+
+    private static final int DISCONNECT = 0;
+    private static final int CONNECTING = 1;
+    private static final int CONNECT = 2;
+
+    private int connectState = DISCONNECT;
+
+    private Handler handler;
+
+    private SPPTest sppTest;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
 
-        findViewById(R.id.connect).setOnClickListener(view -> MainActivityPermissionsDispatcher.checkAndConnectWithPermissionCheck(MainActivity.this));
+        handler = new Handler(Looper.myLooper()) {
+            @Override
+            public void handleMessage(@NonNull Message msg) {
+                if (msg.what == 1) {
+                    Log.d("MainActivity", "update button "+connectState);
+                    if (connectState == DISCONNECT) {
+                        binding.connect.setText("Connect");
+                        binding.connect.setEnabled(true);
+                        binding.connect.setOnClickListener(new View.OnClickListener() {
+                            @Override
+                            public void onClick(View v) {
+                                MainActivityPermissionsDispatcher.checkAndConnectWithPermissionCheck(MainActivity.this);
+                            }
+                        });
+                    }
+                    else if (connectState == CONNECTING) {
+                        binding.connect.setText("...");
+                        binding.connect.setEnabled(false);
+                    }
+                    else if (connectState == CONNECT) {
+                        binding.connect.setText("Disconnect");
+                        binding.connect.setEnabled(true);
+                        binding.connect.setOnClickListener(new View.OnClickListener() {
+                            @Override
+                            public void onClick(View v) {
+                                disconnect();
+                            }
+                        });
+                    }
+                }
+            }
+        };
+
+        handler.sendEmptyMessage(1);
+
     }
 
     @SuppressLint("MissingPermission")
@@ -52,8 +104,7 @@ public class MainActivity extends AppCompatActivity {
         Set<BluetoothDevice> bondDevices = BluetoothAdapter.getDefaultAdapter().getBondedDevices();
         for (BluetoothDevice bluetoothDevice : bondDevices) {
             if ("CM-8828".equals(bluetoothDevice.getName())) {
-                SPPTest sppTest = new SPPTest(bluetoothDevice.getAddress());
-                sppTest.connect();
+                connect(bluetoothDevice);
                 return;
             }
         }
@@ -74,8 +125,7 @@ public class MainActivity extends AppCompatActivity {
                 else if (intent.getAction().equals(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)) {
                     for (BluetoothDevice bluetoothDevice : fondDevices) {
                         if ("CM-8828".equals(bluetoothDevice.getName())) {
-                            SPPTest sppTest = new SPPTest(bluetoothDevice.getAddress());
-                            sppTest.connect();
+                            connect(bluetoothDevice);
                             break;
                         }
                     }
@@ -84,6 +134,45 @@ public class MainActivity extends AppCompatActivity {
         };
         registerReceiver(receiver, intentFilter);
         BluetoothAdapter.getDefaultAdapter().startDiscovery();
+    }
+
+    private void disconnect() {
+        sppTest.disconnect();
+    }
+
+    private void connect(BluetoothDevice bluetoothDevice) {
+        connectState = CONNECTING;
+        handler.sendEmptyMessage(1);
+
+        sppTest = new SPPTest(bluetoothDevice.getAddress());
+        sppTest.setEventListener(new SPPTest.Event() {
+            @Override
+            public void onConnected() {
+                if (connectState == CONNECTING) {
+                    connectState = CONNECT;
+                    handler.sendEmptyMessage(1);
+                }
+            }
+
+            @Override
+            public void onDisConnected() {
+                if (connectState == CONNECT) {
+                    connectState = DISCONNECT;
+                    handler.sendEmptyMessage(1);
+                }
+                if (connectState == CONNECTING) {
+                    connectState = DISCONNECT;
+                    Log.e("MainActivity", "Connect Failed");
+                    handler.sendEmptyMessage(1);
+                }
+            }
+
+            @Override
+            public void onReceive(String msg) {
+
+            }
+        });
+        sppTest.connect();
     }
 
     @Override
