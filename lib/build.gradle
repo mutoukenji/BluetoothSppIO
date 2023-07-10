@@ -39,7 +39,7 @@ afterEvaluate {
                 from components.release
                 groupId = 'com.github.mutoukenji'
                 artifactId = 'BluetoothSppIO'
-                version = '1.0.1'
+                version = '1.0.2'
             }
         }
     }

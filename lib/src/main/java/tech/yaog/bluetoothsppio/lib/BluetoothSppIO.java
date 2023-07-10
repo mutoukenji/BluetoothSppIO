@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.util.Log;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -54,15 +55,19 @@ public class BluetoothSppIO extends IO {
                     byte[] buff = new byte[10240];
                     int readLength;
                     while (!Thread.interrupted()) {
-                        if (is.available() > 0) {
-                            if ((readLength = is.read(buff)) > 0) {
-                                callback.onReceived(Arrays.copyOf(buff, readLength));
-                            }
+                        if ((readLength = is.read(buff)) > 0) {
+                            Log.d("SPP", "Read length:" +readLength);
+                            callback.onReceived(Arrays.copyOf(buff, readLength));
+                        }
+                        else if (readLength < 0) {
+                            Log.d("SPP", "Socket broken");
+                            break;
                         }
                     }
                 } catch (IOException e) {
                     callback.onException(e);
                 }
+                Log.d("SPP", "DisConnect");
                 callback.onDisconnected();
             }
         };
