@@ -11,91 +11,100 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.Socket;
 import java.util.Arrays;
 import java.util.UUID;
 
 import tech.yaog.utils.aioclient.io.IO;
 
-public class BluetoothSppIO extends IO {
+public class BluetoothSppServerIO extends IO {
 
     private String mac;
 
     private BluetoothSocket socket;
 
+    private BluetoothServerSocket serverSocket;
+
     private Thread readThread = null;
 
-    private boolean isConnecting = false;
+    private Thread acceptThread = null;
 
-    public BluetoothSppIO(Callback callback) {
+    private final Object acceptLock = new Object();
+
+    public BluetoothSppServerIO(Callback callback) {
         super(callback);
     }
 
     @SuppressLint("MissingPermission")
     @Override
     public boolean connect(String remote) {
-        String[] parts = remote.split("/");
-        boolean secure = true;
-        boolean force = false;
-        if (parts.length > 1) {
-            String part1 = parts[1];
-            if ("insecure".equals(part1)) {
-                secure = false;
-            }
-            else if ("force".equals(part1)) {
-                force = true;
-            }
-        }
-        mac = parts[0];
-        BluetoothDevice device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(mac);
+        mac = remote;
         try {
-            if (force) {
-                Method method = device.getClass().getMethod("createRfcommSocket", int.class);
-                socket = (BluetoothSocket) method.invoke(device, 1);
-            }
-            else if (secure) {
-                socket = device.createRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"));
-            }
-            else {
-                socket = device.createInsecureRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"));
-            }
+            serverSocket = BluetoothAdapter.getDefaultAdapter().listenUsingRfcommWithServiceRecord("SPP", UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"));
 
+            acceptThread = new Thread(() -> {
+                while (!Thread.interrupted()) {
+                    try {
+                        BluetoothSocket tmp = serverSocket.accept(connTimeout);
+                        if (tmp.getRemoteDevice().getAddress().equalsIgnoreCase(mac)) {
+                            socket = tmp;
+                            break;
+                        }
+                        else {
+                            tmp.close();
+                        }
+                    } catch (IOException e) {
+                        break;
+                    }
+                }
+                synchronized (acceptLock) {
+                    acceptLock.notifyAll();
+                }
+            });
+            acceptThread.start();
             new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    Thread.currentThread().setName("BTConnTimer");
+                    Thread.currentThread().setName("Connect Notify");
                     try {
-                        Thread.sleep(connTimeout);
+                        Thread.sleep(1000);
                     } catch (InterruptedException e) {
-                        e.printStackTrace();
+                        throw new RuntimeException(e);
                     }
-                    if (socket != null && isConnecting) {
-                        try {
-                            socket.close();
-                        } catch (IOException e) {
-                            e.printStackTrace();
+//                    try {
+//                        Method method = BluetoothDevice.class.getMethod("createRfcommSocket", int.class);
+                        try (BluetoothSocket socket1 = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(mac).createInsecureRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"))) {
+                            Log.d("SPPServer", "Notify connect");
+                            socket1.connect();
+                            Thread.sleep(1000);
                         }
-                    }
+                        catch (Exception ignored) {
+                        }
+//                    } catch (NoSuchMethodException e) {
+//                        throw new RuntimeException(e);
+//                    }
                 }
             }).start();
 
-            isConnecting = true;
-            socket.connect();
-            isConnecting = false;
-            callback.onConnected();
-            return true;
+            synchronized (acceptLock) {
+                try {
+                    acceptLock.wait();
+                } catch (InterruptedException ignored) {
+                }
+            }
+            if (socket != null) {
+                callback.onConnected();
+                return true;
+            }
+            else {
+                callback.onDisconnected();
+            }
+
         } catch (IOException e) {
-            callback.onDisconnected();
             callback.onException(e);
-        } catch (NoSuchMethodException e) {
-            throw new RuntimeException(e);
-        } catch (InvocationTargetException e) {
-            throw new RuntimeException(e);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
+            callback.onDisconnected();
         }
-        finally {
-            isConnecting = false;
-        }
+
         return false;
     }
 
@@ -129,7 +138,7 @@ public class BluetoothSppIO extends IO {
                 callback.onDisconnected();
             }
         };
-        readThread.setName("SPP("+mac+") Reader");
+        readThread.setName("SPPServer("+mac+") Reader");
         readThread.setPriority(8);
         readThread.start();
     }

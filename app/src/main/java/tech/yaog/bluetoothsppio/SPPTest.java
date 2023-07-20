@@ -50,7 +50,7 @@ public class SPPTest {
 
     private static final char[] CHARS = new char[]{'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
 
-    private String hexToString(byte[] bytes) {
+    public static String hexToString(byte[] bytes) {
         StringBuilder builder = new StringBuilder();
         boolean lead = true;
         for (byte b : bytes) {
